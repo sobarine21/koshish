@@ -1,15 +1,14 @@
 import streamlit as st
 import google.generativeai as palm
 import trimesh
-import numpy as np
-import io
-import base64
 import json
 
 # Set your Gemini API key
 palm.configure(api_key="YOUR_GEMINI_API_KEY")
 
-# Streamlit app
+# Choose your model
+model = palm.GenerativeModel("models/gemini-pro") # Or a suitable chat model
+
 st.title("AI CAD Copilot")
 
 user_input = st.text_input("Describe the CAD model you want to create:")
@@ -19,7 +18,6 @@ if st.button("Generate Model"):
         st.warning("Please enter a description.")
     else:
         try:
-            # Gemini Prompt Engineering (Improved)
             prompt = f"""
             You are an expert CAD modeler. Based on the user's description, generate a concise description of the geometric primitives and their parameters needed to create the 3D model. Focus on simple shapes like boxes, cylinders, spheres, cones, etc. Provide the output in a structured JSON format suitable for parsing, for example:
 
@@ -33,14 +31,9 @@ if st.button("Generate Model"):
             User Description: {user_input}
             """
 
-            # Use Gemini (Correct Way)
-            response = palm.chat(
-                model="models/chat-bison-001", # Use the correct model name
-                messages=[{"role": "user", "content": prompt}],
-                temperature=0.0
-            )
-            
-            model_description = response.last
+            response = model.generate_text(prompt=prompt, temperature=0.0)
+
+            model_description = response.result
 
             try:
                 model_data = json.loads(model_description)
@@ -84,7 +77,7 @@ if st.button("Generate Model"):
 
             except json.JSONDecodeError as e:
                 st.error(f"Gemini returned invalid JSON: {e}")
-                st.write(model_description)  # Important for debugging
+                st.write(model_description)
 
         except Exception as e:
             st.error(f"An error occurred: {e}")
