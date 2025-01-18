@@ -35,9 +35,13 @@ if st.button("Generate Model"):
         try:
             # Send user input to the chat session to get the model description
             response = chat_session.send_message(user_input)
-            
+
             # Get the generated text from the response
             model_description = response.text
+
+            # Display the raw response for debugging
+            st.subheader("Raw Response:")
+            st.write(model_description)
 
             try:
                 # Try to parse the model description into JSON
@@ -82,7 +86,7 @@ if st.button("Generate Model"):
 
             except json.JSONDecodeError as e:
                 st.error(f"Gemini returned invalid JSON: {e}")
-                st.write(model_description)
+                st.write(model_description)  # Display raw response in case of error
 
         except Exception as e:
             st.error(f"An error occurred: {e}")
