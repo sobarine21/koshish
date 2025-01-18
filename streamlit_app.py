@@ -31,8 +31,8 @@ if st.button("Generate Model"):
             User Description: {user_input}
             """
 
-            # Correct way to generate text with Gemini
-            response = model.generate_text(prompt=prompt)
+            # Correct way to generate text with Gemini API (replace 'generate_text' with 'generate')
+            response = model.generate(prompt=prompt)
 
             model_description = response.result
 
