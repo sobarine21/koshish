@@ -7,7 +7,7 @@ import json
 palm.configure(api_key="YOUR_GEMINI_API_KEY")
 
 # Choose your model
-model = palm.GenerativeModel("models/gemini-pro") # Or a suitable chat model
+model = palm.GenerativeModel("models/gemini-pro")
 
 st.title("AI CAD Copilot")
 
@@ -31,7 +31,8 @@ if st.button("Generate Model"):
             User Description: {user_input}
             """
 
-            response = model.generate_text(prompt=prompt, temperature=0.0)
+            # Correct way to generate text with Gemini
+            response = model.generate_text(prompt=prompt)
 
             model_description = response.result
 
