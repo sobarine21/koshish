@@ -1,94 +1,105 @@
-import os
 import streamlit as st
 import google.generativeai as genai
-import trimesh
-import json
+import numpy as np
+from stl import mesh
+import re
 
-# Set your Gemini API key
-genai.configure(api_key=os.environ["GEMINI_API_KEY"])
+# Configure the API key securely from Streamlit's secrets
+genai.configure(api_key=st.secrets["GOOGLE_API_KEY"])
 
-# Create the model with generation configuration
-generation_config = {
-    "temperature": 2,
-    "top_p": 0.95,
-    "top_k": 40,
-    "max_output_tokens": 8192,
-    "response_mime_type": "text/plain",
-}
+# Streamlit App UI
+st.title("AI CAD Design Generator")
+st.write("Use generative AI to create CAD designs from your description.")
 
-model = genai.GenerativeModel(
-    model_name="gemini-2.0-flash-exp",
-    generation_config=generation_config,
-)
+# Prompt input field
+prompt = st.text_area("Describe the design you want (e.g., 'Create a box with length 10mm, width 5mm, and height 15mm.')")
 
-# Initialize the chat session
-chat_session = model.start_chat(history=[])
+# Function to process user input with Gemini AI
+def process_user_input(user_input):
+    try:
+        # Load and configure the Gemini model
+        model = genai.GenerativeModel("gemini-2.0-flash-exp")
+        
+        # Generate a response from the AI
+        response = model.generate_content(user_input)
+        return response.text
+    except Exception as e:
+        st.error(f"Error processing input: {e}")
+        return None
 
-st.title("AI CAD Copilot")
+# Function to extract dimensions from the AI's response
+def extract_dimensions(response):
+    dimensions = {"length": 0, "width": 0, "height": 0}
+    # Regex to extract numerical dimensions (assuming a format like: length x width x height)
+    numbers = re.findall(r'\d+', response)
+    if len(numbers) >= 3:
+        dimensions["length"] = float(numbers[0])
+        dimensions["width"] = float(numbers[1])
+        dimensions["height"] = float(numbers[2])
+    return dimensions
 
-user_input = st.text_input("Describe the CAD model you want to create:")
+# Function to generate an STL file for a box
+def generate_stl_box(dimensions):
+    # Create a 3D box (vertices)
+    length = dimensions["length"]
+    width = dimensions["width"]
+    height = dimensions["height"]
 
-if st.button("Generate Model"):
-    if not user_input:
-        st.warning("Please enter a description.")
+    # Vertices of a 3D box
+    vertices = np.array([
+        [-length/2, -width/2, -height/2],
+        [ length/2, -width/2, -height/2],
+        [ length/2,  width/2, -height/2],
+        [-length/2,  width/2, -height/2],
+        [-length/2, -width/2,  height/2],
+        [ length/2, -width/2,  height/2],
+        [ length/2,  width/2,  height/2],
+        [-length/2,  width/2,  height/2]
+    ])
+
+    # Faces of the box (using vertex indices)
+    faces = np.array([
+        [0, 3, 1], [1, 3, 2], # Bottom face
+        [4, 5, 6], [4, 6, 7], # Top face
+        [0, 1, 5], [0, 5, 4], # Front face
+        [1, 2, 6], [1, 6, 5], # Right face
+        [2, 3, 7], [2, 7, 6], # Back face
+        [3, 0, 4], [3, 4, 7]  # Left face
+    ])
+
+    # Create the mesh
+    box_mesh = mesh.Mesh(np.zeros(faces.shape[0], dtype=mesh.Mesh.dtype))
+    for i, face in enumerate(faces):
+        for j in range(3):
+            box_mesh.vectors[i][j] = vertices[face[j], :]
+
+    return box_mesh
+
+# Button to generate design based on AI's interpretation
+if st.button("Generate CAD Design"):
+    if prompt:
+        # Step 1: Use Gemini AI to process the user's description
+        design_details = process_user_input(prompt)
+        if design_details:
+            st.write("AI interpreted the design as: ", design_details)
+
+            # Step 2: Extract the design dimensions from the AI's response
+            dimensions = extract_dimensions(design_details)
+
+            # Step 3: Generate the CAD design (STL file) using numpy-stl
+            box_mesh = generate_stl_box(dimensions)
+
+            # Step 4: Export the design as an STL file
+            stl_file = "design.stl"
+            box_mesh.save(stl_file)
+
+            # Provide a download link for the STL file
+            with open(stl_file, "rb") as file:
+                st.download_button(
+                    label="Download STL File",
+                    data=file,
+                    file_name="design.stl",
+                    mime="application/octet-stream"
+                )
     else:
-        try:
-            # Send user input to the chat session to get the model description
-            response = chat_session.send_message(user_input)
-
-            # Log the raw response for debugging
-            st.subheader("Raw Response:")
-            st.write(response.text)  # Display the raw response
-
-            # Check if the response text is empty
-            if not response.text:
-                st.error("The API returned an empty response. Please check the input or try again later.")
-            else:
-                try:
-                    # Attempt to parse the model description into JSON
-                    model_description = response.text
-                    model_data = json.loads(model_description)
-
-                    meshes = []
-                    for part in model_data:
-                        if part["type"] == "box":
-                            mesh = trimesh.creation.box(extents=[part["width"], part["height"], part["depth"]])
-                        elif part["type"] == "cylinder":
-                            mesh = trimesh.creation.cylinder(radius=part["radius"], height=part["height"])
-                            if "position" in part:
-                                mesh.apply_translation(part["position"])
-                        elif part["type"] == "sphere":
-                            mesh = trimesh.creation.icosphere(radius=part["radius"])
-                        else:
-                            st.warning(f"Shape type '{part['type']}' not supported yet.")
-                            continue
-                        meshes.append(mesh)
-
-                    if meshes:
-                        if len(meshes) > 1:
-                            final_mesh = trimesh.util.concatenate(meshes)
-                        else:
-                            final_mesh = meshes[0]
-
-                        stl_data = trimesh.exchange.stl.export_stl(final_mesh)
-
-                        st.download_button(
-                            label="Download STL",
-                            data=stl_data,
-                            file_name="model.stl",
-                            mime="application/octet-stream",
-                        )
-
-                        scene = trimesh.Scene(final_mesh)
-                        png = scene.save_image(resolution=[500, 500], visible=True)
-                        st.image(png, use_column_width=True)
-
-                    else:
-                        st.warning("No valid shapes were generated.")
-
-                except json.JSONDecodeError as e:
-                    st.error(f"Gemini returned invalid JSON: {e}")
-                    st.write(model_description)  # Display raw response in case of error
-
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
+        st.write("Please provide a description for the design.")
