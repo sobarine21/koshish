@@ -36,57 +36,59 @@ if st.button("Generate Model"):
             # Send user input to the chat session to get the model description
             response = chat_session.send_message(user_input)
 
-            # Get the generated text from the response
-            model_description = response.text
-
-            # Display the raw response for debugging
+            # Log the raw response for debugging
             st.subheader("Raw Response:")
-            st.write(model_description)
+            st.write(response.text)  # Display the raw response
 
-            try:
-                # Try to parse the model description into JSON
-                model_data = json.loads(model_description)
+            # Check if the response text is empty
+            if not response.text:
+                st.error("The API returned an empty response. Please check the input or try again later.")
+            else:
+                try:
+                    # Attempt to parse the model description into JSON
+                    model_description = response.text
+                    model_data = json.loads(model_description)
 
-                meshes = []
-                for part in model_data:
-                    if part["type"] == "box":
-                        mesh = trimesh.creation.box(extents=[part["width"], part["height"], part["depth"]])
-                    elif part["type"] == "cylinder":
-                        mesh = trimesh.creation.cylinder(radius=part["radius"], height=part["height"])
-                        if "position" in part:
-                            mesh.apply_translation(part["position"])
-                    elif part["type"] == "sphere":
-                        mesh = trimesh.creation.icosphere(radius=part["radius"])
+                    meshes = []
+                    for part in model_data:
+                        if part["type"] == "box":
+                            mesh = trimesh.creation.box(extents=[part["width"], part["height"], part["depth"]])
+                        elif part["type"] == "cylinder":
+                            mesh = trimesh.creation.cylinder(radius=part["radius"], height=part["height"])
+                            if "position" in part:
+                                mesh.apply_translation(part["position"])
+                        elif part["type"] == "sphere":
+                            mesh = trimesh.creation.icosphere(radius=part["radius"])
+                        else:
+                            st.warning(f"Shape type '{part['type']}' not supported yet.")
+                            continue
+                        meshes.append(mesh)
+
+                    if meshes:
+                        if len(meshes) > 1:
+                            final_mesh = trimesh.util.concatenate(meshes)
+                        else:
+                            final_mesh = meshes[0]
+
+                        stl_data = trimesh.exchange.stl.export_stl(final_mesh)
+
+                        st.download_button(
+                            label="Download STL",
+                            data=stl_data,
+                            file_name="model.stl",
+                            mime="application/octet-stream",
+                        )
+
+                        scene = trimesh.Scene(final_mesh)
+                        png = scene.save_image(resolution=[500, 500], visible=True)
+                        st.image(png, use_column_width=True)
+
                     else:
-                        st.warning(f"Shape type '{part['type']}' not supported yet.")
-                        continue
-                    meshes.append(mesh)
+                        st.warning("No valid shapes were generated.")
 
-                if meshes:
-                    if len(meshes) > 1:
-                        final_mesh = trimesh.util.concatenate(meshes)
-                    else:
-                        final_mesh = meshes[0]
-
-                    stl_data = trimesh.exchange.stl.export_stl(final_mesh)
-
-                    st.download_button(
-                        label="Download STL",
-                        data=stl_data,
-                        file_name="model.stl",
-                        mime="application/octet-stream",
-                    )
-
-                    scene = trimesh.Scene(final_mesh)
-                    png = scene.save_image(resolution=[500, 500], visible=True)
-                    st.image(png, use_column_width=True)
-
-                else:
-                    st.warning("No valid shapes were generated.")
-
-            except json.JSONDecodeError as e:
-                st.error(f"Gemini returned invalid JSON: {e}")
-                st.write(model_description)  # Display raw response in case of error
+                except json.JSONDecodeError as e:
+                    st.error(f"Gemini returned invalid JSON: {e}")
+                    st.write(model_description)  # Display raw response in case of error
 
         except Exception as e:
             st.error(f"An error occurred: {e}")
