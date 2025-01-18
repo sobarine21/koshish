@@ -1,13 +1,28 @@
+import os
 import streamlit as st
-import google.generativeai as palm
+import google.generativeai as genai
 import trimesh
 import json
 
 # Set your Gemini API key
-palm.configure(api_key="YOUR_GEMINI_API_KEY")
+genai.configure(api_key=os.environ["GEMINI_API_KEY"])
 
-# Choose your model
-model = palm.GenerativeModel("gemini-2.0-flash-exp")
+# Create the model with generation configuration
+generation_config = {
+    "temperature": 2,
+    "top_p": 0.95,
+    "top_k": 40,
+    "max_output_tokens": 8192,
+    "response_mime_type": "text/plain",
+}
+
+model = genai.GenerativeModel(
+    model_name="gemini-2.0-flash-exp",
+    generation_config=generation_config,
+)
+
+# Initialize the chat session
+chat_session = model.start_chat(history=[])
 
 st.title("AI CAD Copilot")
 
@@ -18,74 +33,56 @@ if st.button("Generate Model"):
         st.warning("Please enter a description.")
     else:
         try:
-            # Define the prompt for generating CAD model description
-            prompt = f"""
-            You are an expert CAD modeler. Based on the user's description, generate a concise description of the geometric primitives and their parameters needed to create the 3D model. Focus on simple shapes like boxes, cylinders, spheres, cones, etc. Provide the output in a structured JSON format suitable for parsing, for example:
+            # Send user input to the chat session to get the model description
+            response = chat_session.send_message(user_input)
+            
+            # Get the generated text from the response
+            model_description = response.text
 
-            ```json
-            [
-              {{"type": "box", "width": 10, "height": 5, "depth": 3}},
-              {{"type": "cylinder", "radius": 2, "height": 8, "position": [5, 0, 0]}}
-            ]
-            ```
+            try:
+                # Try to parse the model description into JSON
+                model_data = json.loads(model_description)
 
-            User Description: {user_input}
-            """
-
-            # Generate text using the correct method `generate_text` from `GenerativeModel`
-            response = model.generate_text(prompt=prompt)
-
-            # Check if we got a valid response
-            if response and 'result' in response:
-                model_description = response['result']
-
-                try:
-                    # Parse the generated description into model data
-                    model_data = json.loads(model_description)
-
-                    meshes = []
-                    for part in model_data:
-                        if part["type"] == "box":
-                            mesh = trimesh.creation.box(extents=[part["width"], part["height"], part["depth"]])
-                        elif part["type"] == "cylinder":
-                            mesh = trimesh.creation.cylinder(radius=part["radius"], height=part["height"])
-                            if "position" in part:
-                                mesh.apply_translation(part["position"])
-                        elif part["type"] == "sphere":
-                            mesh = trimesh.creation.icosphere(radius=part["radius"])
-                        else:
-                            st.warning(f"Shape type '{part['type']}' not supported yet.")
-                            continue
-                        meshes.append(mesh)
-
-                    if meshes:
-                        if len(meshes) > 1:
-                            final_mesh = trimesh.util.concatenate(meshes)
-                        else:
-                            final_mesh = meshes[0]
-
-                        stl_data = trimesh.exchange.stl.export_stl(final_mesh)
-
-                        st.download_button(
-                            label="Download STL",
-                            data=stl_data,
-                            file_name="model.stl",
-                            mime="application/octet-stream",
-                        )
-
-                        scene = trimesh.Scene(final_mesh)
-                        png = scene.save_image(resolution=[500, 500], visible=True)
-                        st.image(png, use_column_width=True)
-
+                meshes = []
+                for part in model_data:
+                    if part["type"] == "box":
+                        mesh = trimesh.creation.box(extents=[part["width"], part["height"], part["depth"]])
+                    elif part["type"] == "cylinder":
+                        mesh = trimesh.creation.cylinder(radius=part["radius"], height=part["height"])
+                        if "position" in part:
+                            mesh.apply_translation(part["position"])
+                    elif part["type"] == "sphere":
+                        mesh = trimesh.creation.icosphere(radius=part["radius"])
                     else:
-                        st.warning("No valid shapes were generated.")
+                        st.warning(f"Shape type '{part['type']}' not supported yet.")
+                        continue
+                    meshes.append(mesh)
 
-                except json.JSONDecodeError as e:
-                    st.error(f"Gemini returned invalid JSON: {e}")
-                    st.write(model_description)
+                if meshes:
+                    if len(meshes) > 1:
+                        final_mesh = trimesh.util.concatenate(meshes)
+                    else:
+                        final_mesh = meshes[0]
 
-            else:
-                st.error("Failed to generate model description. Please check the API response.")
+                    stl_data = trimesh.exchange.stl.export_stl(final_mesh)
+
+                    st.download_button(
+                        label="Download STL",
+                        data=stl_data,
+                        file_name="model.stl",
+                        mime="application/octet-stream",
+                    )
+
+                    scene = trimesh.Scene(final_mesh)
+                    png = scene.save_image(resolution=[500, 500], visible=True)
+                    st.image(png, use_column_width=True)
+
+                else:
+                    st.warning("No valid shapes were generated.")
+
+            except json.JSONDecodeError as e:
+                st.error(f"Gemini returned invalid JSON: {e}")
+                st.write(model_description)
 
         except Exception as e:
             st.error(f"An error occurred: {e}")
