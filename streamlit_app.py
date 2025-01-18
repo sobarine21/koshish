@@ -6,6 +6,9 @@ import json
 # Set your Gemini API key
 palm.configure(api_key="YOUR_GEMINI_API_KEY")
 
+# Choose your model
+model = palm.GenerativeModel("gemini-2.0-flash-exp")
+
 st.title("AI CAD Copilot")
 
 user_input = st.text_input("Describe the CAD model you want to create:")
@@ -29,14 +32,15 @@ if st.button("Generate Model"):
             User Description: {user_input}
             """
 
-            # Use the latest API call for text generation
-            response = palm.chat(messages=[{"role": "user", "content": prompt}])
+            # Generate text using the correct method `generate_text` from `GenerativeModel`
+            response = model.generate_text(prompt=prompt)
 
-            # Check if the response contains the 'content' key for the generated description
-            if response and 'messages' in response and len(response['messages']) > 0:
-                model_description = response['messages'][0]['content']
+            # Check if we got a valid response
+            if response and 'result' in response:
+                model_description = response['result']
 
                 try:
+                    # Parse the generated description into model data
                     model_data = json.loads(model_description)
 
                     meshes = []
